@@ -54,6 +54,7 @@ export function addProduct(product) {
   const nextProduct = {
     id: Date.now(),
     sku: product.sku || `SKU-${Date.now()}`,
+    barcode: product.barcode || '',
     name: product.name || 'New Product',
     brand: product.brand || 'Jomich Petshop',
     type: product.type || 'General',

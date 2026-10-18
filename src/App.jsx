@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { BrowserMultiFormatReader, BrowserQRCodeReader } from '@zxing/browser';
 import { addProduct, deleteProduct, getInventoryStats, getProducts, updateProduct } from './db';
 
 const paw = '🐾';
@@ -88,6 +89,7 @@ function PasswordField({ label, value, onChange, placeholder, visible, onToggle 
 function AddProductScreen({ onBack, onSaveProduct, initialProduct = null }) {
   const [product, setProduct] = useState({
     sku: initialProduct?.sku || '',
+    barcode: initialProduct?.barcode || '',
     name: initialProduct?.name || '',
     brand: initialProduct?.brand || '',
     type: initialProduct?.type || 'New Item',
@@ -95,10 +97,49 @@ function AddProductScreen({ onBack, onSaveProduct, initialProduct = null }) {
     price: initialProduct?.price || '',
     stock: initialProduct?.stock || '',
   });
+  const [scannerMode, setScannerMode] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const videoRef = useRef(null);
+  const scannerControlsRef = useRef(null);
 
   const updateField = (field) => (event) => {
     setProduct((prev) => ({ ...prev, [field]: event.target.value }));
   };
+
+  useEffect(() => {
+    if (!scannerMode || !videoRef.current) return undefined;
+
+    let cancelled = false;
+    const reader = scannerMode === 'qr' ? new BrowserQRCodeReader() : new BrowserMultiFormatReader();
+    reader.decodeFromConstraints(
+      { video: { facingMode: { ideal: 'environment' } } },
+      videoRef.current,
+      (result, _error, controls) => {
+        if (cancelled) {
+          controls.stop();
+          return;
+        }
+        scannerControlsRef.current = controls;
+        if (result) {
+          setProduct((current) => ({ ...current, barcode: result.getText() }));
+          setScanError('');
+          controls.stop();
+          setScannerMode(null);
+        }
+      },
+    ).then((controls) => {
+      if (cancelled) controls.stop();
+      else scannerControlsRef.current = controls;
+    }).catch((error) => {
+      if (!cancelled) setScanError(error instanceof Error ? error.message : 'Unable to access the camera.');
+    });
+
+    return () => {
+      cancelled = true;
+      scannerControlsRef.current?.stop();
+      scannerControlsRef.current = null;
+    };
+  }, [scannerMode]);
 
   const handleSave = () => {
     if (!product.name.trim() || !product.sku.trim()) {
@@ -118,8 +159,8 @@ function AddProductScreen({ onBack, onSaveProduct, initialProduct = null }) {
         </div>
 
         <div className="scanner-row">
-          <button className="scan-btn">Scan QR code</button>
-          <button className="scan-btn">Scan barcode</button>
+          <button className="scan-btn" onClick={() => { setScanError(''); setScannerMode('qr'); }}>Scan QR code</button>
+          <button className="scan-btn" onClick={() => { setScanError(''); setScannerMode('barcode'); }}>Scan barcode</button>
         </div>
 
         <div className="product-form">
@@ -137,7 +178,7 @@ function AddProductScreen({ onBack, onSaveProduct, initialProduct = null }) {
           <div className="row-two">
             <div className="field small-field">
               <label>Barcode</label>
-              <input type="text" placeholder="Barcode" />
+              <input type="text" placeholder="Scan or enter barcode" value={product.barcode} onChange={updateField('barcode')} />
             </div>
             <div className="field small-field">
               <label>Brand</label>
@@ -178,6 +219,21 @@ function AddProductScreen({ onBack, onSaveProduct, initialProduct = null }) {
 
           <button className="product-save" onClick={handleSave}>{initialProduct ? 'Update Item' : 'Save Item'}</button>
         </div>
+
+        {scannerMode && (
+          <div className="scanner-backdrop">
+            <section className="scanner-dialog" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
+              <div className="scanner-dialog-header">
+                <h3 id="scanner-title">{scannerMode === 'qr' ? 'Scan QR code' : 'Scan barcode'}</h3>
+                <button className="close-mini" aria-label="Close scanner" onClick={() => setScannerMode(null)}>×</button>
+              </div>
+              <video ref={videoRef} className="scanner-video" muted playsInline />
+              <p className="scanner-message" aria-live="polite">
+                {scanError || 'Point the camera at a code.'}
+              </p>
+            </section>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -230,6 +286,7 @@ function ReceiptScreen({ onBack, role, activeScreen }) {
 }
 
 function WorkspaceScreen({ screen, role, products, salesSummary, onNavigate, onAddProduct, onEditProduct, onDeleteProduct, onLogout }) {
+  const [pdfTools, setPdfTools] = useState(null);
   const isStaff = role === 'staff';
   const menu = isStaff ? staffMenu : sideMenu;
   const titles = {
@@ -244,6 +301,58 @@ function WorkspaceScreen({ screen, role, products, salesSummary, onNavigate, onA
   };
   const lowStockOnly = screen === 'low-stock-staff';
   const visibleProducts = products.filter((product) => !lowStockOnly || Number(product.stock || 0) <= 25);
+
+  useEffect(() => {
+    if (screen !== 'reports') return undefined;
+
+    let active = true;
+    Promise.all([import('jspdf'), import('jspdf-autotable')]).then(([pdfModule, tableModule]) => {
+      if (active) setPdfTools({ jsPDF: pdfModule.jsPDF, autoTable: tableModule.default });
+    });
+
+    return () => { active = false; };
+  }, [screen]);
+
+  const downloadReport = () => {
+    if (!pdfTools) return;
+    const { jsPDF, autoTable } = pdfTools;
+    const report = new jsPDF();
+    const date = new Date();
+    const fileDate = date.toISOString().slice(0, 10);
+    const formatValue = (value) => String(value).replaceAll('₱', 'PHP ');
+
+    report.setFontSize(19);
+    report.text('Jomich Petshop Report', 14, 18);
+    report.setFontSize(10);
+    report.text(`Generated ${date.toLocaleString()}`, 14, 25);
+    autoTable(report, {
+      startY: 32,
+      head: [['Sales metric', 'Value', 'Trend']],
+      body: salesSummary.map((item) => [item.label, formatValue(item.value), item.trend]),
+      headStyles: { fillColor: [24, 37, 63] },
+      styles: { fontSize: 9 },
+    });
+
+    const inventoryTop = report.lastAutoTable.finalY + 12;
+    report.setFontSize(14);
+    report.text('Product inventory', 14, inventoryTop);
+    autoTable(report, {
+      startY: inventoryTop + 5,
+      head: [['Product', 'SKU', 'Barcode', 'Stock', 'Price', 'Status']],
+      body: products.map((item) => [
+        item.name,
+        item.sku,
+        item.barcode || '-',
+        String(Number(item.stock || 0)),
+        `PHP ${Number(item.price || 0).toLocaleString()}`,
+        Number(item.stock || 0) <= 25 ? 'Low' : 'Healthy',
+      ]),
+      headStyles: { fillColor: [24, 37, 63] },
+      styles: { fontSize: 8 },
+    });
+
+    report.save(`jomich-petshop-report-${fileDate}.pdf`);
+  };
 
   return (
     <div className="prototype-shell">
@@ -283,6 +392,7 @@ function WorkspaceScreen({ screen, role, products, salesSummary, onNavigate, onA
             </div>
             <div className="dashboard-actions">
               {screen === 'workspace-settings' && <button className="mini-action" onClick={() => onNavigate('dashboard')}>← Dashboard</button>}
+              {screen === 'reports' && <button className="add-item-btn" onClick={downloadReport} disabled={!pdfTools}>{pdfTools ? 'Download PDF' : 'Preparing PDF...'}</button>}
               {(screen === 'products' || screen === 'inventory' || screen === 'inventory-staff' || lowStockOnly) && (
                 <button className="add-item-btn" onClick={onAddProduct}>+ Add product</button>
               )}
