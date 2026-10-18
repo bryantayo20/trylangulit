@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" role="img" aria-labelledby="title">
+  <title id="title">Pet shop dog and cat mascot</title>
+  <rect width="160" height="120" rx="16" fill="#e8f3f3"/>
+  <ellipse cx="82" cy="105" rx="57" ry="5" fill="#8dc3d2"/>
+  <g stroke="#493b32" stroke-width="2" stroke-linejoin="round">
+    <path d="M31 39 25 30q-3-6 4-8l10 5 7-6 12 4 5 18-5 39-8 10-17-3-8-8 5-19z" fill="#d78b43"/>
+    <path d="M38 28q3-17 20-19 18-1 24 13l-3 34q-3 14-18 16L43 65 35 52z" fill="#eaa14f"/>
+    <path d="m41 20-2-9q0-6 6-5l9 7m12-1 6-7q5-3 8 2l5 12" fill="#d78b43"/>
+    <path d="M44 31q7-9 14 0v9q-7 7-14 0zm17 0q7-9 14 0v9q-7 7-14 0z" fill="#fff4df"/>
+    <circle cx="51" cy="34" r="2.2" fill="#2c2926"/><circle cx="68" cy="34" r="2.2" fill="#2c2926"/>
+    <path d="m57 43 4 0-2 3z" fill="#46342d"/><path d="M59 46q-4 6-8 1m8-1q4 6 8 1" fill="none"/>
+    <path d="M44 70q-5 12-2 22l9 5 10-3 2-24m-24 2q-8 2-8 10l5 4" fill="#d78b43"/>
+    <path d="M72 61q-4-13 3-22l2-16q1-5 5-1l5 10q12-7 25-1l7-8q4-4 5 2l1 16q8 10 4 23l-5 16q-17 9-42 1z" fill="#f2a057"/>
+    <path d="m77 26-2-11q0-6 5-4l10 10m19 0 7-10q4-4 6 1l-1 13" fill="#eb8a45"/>
+    <path d="M78 43q6-7 12 0v8q-6 5-12 0zm24 0q6-7 12 0v8q-6 5-12 0z" fill="#fff8eb"/>
+    <circle cx="84" cy="45" r="2" fill="#292522"/><circle cx="108" cy="45" r="2" fill="#292522"/>
+    <path d="m93 55 5 0-2.5 3z" fill="#ad5262"/><path d="M95.5 58q-4 5-8 1m8-1q4 5 8 1" fill="none"/>
+    <path d="M82 79q-2 11 1 18l10 3 5-3 2-18m5 0 2 18 10-1 4-7-4-13" fill="#f2a057"/>
+    <path d="M127 74q10 0 8 10-3 8-11 2" fill="none" stroke="#e8954f" stroke-width="5"/>
+  </g>
+  <path d="M46 19q6-4 12 0m19 6q5-4 10-1m38 17q5 1 8 5m-57 8q-5 2-9 0" fill="none" stroke="#fff0d1" stroke-width="3" stroke-linecap="round"/>
+</svg>
