@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Jomich Petshop</string>
+    <string name="title_activity_main">Jomich Petshop</string>
+    <string name="package_name">com.jomichpetshop.app</string>
+    <string name="custom_url_scheme">com.jomichpetshop.app</string>
+</resources>
