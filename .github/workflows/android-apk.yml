@@ -46,7 +46,7 @@ jobs:
           CAPACITOR_TELEMETRY_DISABLED: true
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: chmod +x gradlew && ./gradlew assembleDebug
         working-directory: android
 
       - name: Upload APK
