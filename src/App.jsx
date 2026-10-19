@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader, BrowserQRCodeReader } from '@zxing/browser';
-import { addProduct, deleteProduct, getInventoryStats, getProducts, updateProduct } from './db';
+import { addProduct, deleteProduct, getInventoryMovements, getInventoryStats, getProducts, getSales, recordSale, updateProduct } from './db';
 
 const paw = '🐾';
 const dog = '🐶';
@@ -14,18 +14,10 @@ const thumbnailScreens = [
   { id: 'add-product', label: 'Add Item' },
 ];
 
-const recurringSales = [
-  { item: 'Dog Food Bag', qty: 2, amount: '₱1,200' },
-  { item: 'Cat Litter', qty: 1, amount: '₱330' },
-  { item: 'Pet Collar', qty: 3, amount: '₱690' },
-  { item: 'Fish Food', qty: 2, amount: '₱420' },
-];
-
 const sideMenu = [
   { id: 'dashboard', name: 'Dashboard', icon: '🏠' },
   { id: 'products', name: 'Products', icon: '🧾' },
   { id: 'sales', name: 'Sales', icon: '📊' },
-  { id: 'customers', name: 'Customers', icon: '👥' },
   { id: 'inventory', name: 'Inventory', icon: '📦' },
   { id: 'reports', name: 'Reports', icon: '📈' },
   { id: 'workspace-settings', name: 'Settings', icon: '⚙️' },
@@ -36,18 +28,6 @@ const stockTable = [
   { name: 'Cat Litter', sku: 'CL-118', stock: '34', price: '₱330', status: 'Low' },
   { name: 'Pet Shampoo', sku: 'PS-088', stock: '22', price: '₱220', status: 'Low' },
   { name: 'Bird Seed', sku: 'BS-366', stock: '47', price: '₱190', status: 'Healthy' },
-];
-
-const customerStats = [
-  { name: 'New Customers', value: '1,248', delta: '+18%' },
-  { name: 'Returning', value: '742', delta: '+9%' },
-  { name: 'Avg. Order', value: '₱1,460', delta: '+6%' },
-];
-
-const receiptItems = [
-  { name: 'Dog Food Bag', qty: 2, price: 540 },
-  { name: 'Cat Litter', qty: 1, price: 330 },
-  { name: 'Pet Collar', qty: 3, price: 320 },
 ];
 
 const notificationOptions = [
@@ -62,6 +42,60 @@ const staffMenu = [
   { id: 'inventory-staff', name: 'Inventory', icon: '📦' },
   { id: 'low-stock-staff', name: 'Low Stock', icon: '⚠️' },
 ];
+
+function isSameDay(firstDate, secondDate) {
+  return firstDate.getFullYear() === secondDate.getFullYear()
+    && firstDate.getMonth() === secondDate.getMonth()
+    && firstDate.getDate() === secondDate.getDate();
+}
+
+function filterSalesByPeriod(sales, period) {
+  const now = new Date();
+  return sales.filter((sale) => {
+    const saleDate = new Date(sale.date);
+    if (period === 'Daily') return isSameDay(saleDate, now);
+    if (period === 'Monthly') return saleDate.getFullYear() === now.getFullYear() && saleDate.getMonth() === now.getMonth();
+    const weekStart = new Date(now);
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+    return saleDate >= weekStart && saleDate < weekEnd;
+  });
+}
+
+function buildChartData(sales, period) {
+  const now = new Date();
+  let buckets = [];
+
+  if (period === 'Daily') {
+    buckets = Array.from({ length: 8 }, (_, index) => ({
+      label: `${String(index * 3).padStart(2, '0')}:00`,
+      matches: (date) => isSameDay(date, now) && date.getHours() >= index * 3 && date.getHours() < (index + 1) * 3,
+    }));
+  } else if (period === 'Weekly') {
+    const weekStart = new Date(now);
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    buckets = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(weekStart);
+      date.setDate(weekStart.getDate() + index);
+      return { label: date.toLocaleDateString(undefined, { weekday: 'short' }), matches: (saleDate) => isSameDay(date, saleDate) };
+    });
+  } else {
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const weekCount = Math.ceil(daysInMonth / 7);
+    buckets = Array.from({ length: weekCount }, (_, index) => ({
+      label: `Week ${index + 1}`,
+      matches: (date) => date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && Math.floor((date.getDate() - 1) / 7) === index,
+    }));
+  }
+
+  return buckets.map((bucket) => ({
+    label: bucket.label,
+    value: sales.reduce((total, sale) => total + (bucket.matches(new Date(sale.date)) ? Number(sale.total || 0) : 0), 0),
+  }));
+}
 
 function PasswordField({ label, value, onChange, placeholder, visible, onToggle }) {
   return (
@@ -239,10 +273,8 @@ function AddProductScreen({ onBack, onSaveProduct, initialProduct = null }) {
   );
 }
 
-function ReceiptScreen({ onBack, role, activeScreen }) {
-  const subtotal = receiptItems.reduce((sum, item) => sum + item.qty * item.price, 0);
-  const vat = subtotal * 0.12;
-  const total = subtotal + vat;
+function ReceiptScreen({ onBack, role, sale }) {
+  const subtotal = sale?.total || 0;
 
   return (
     <div className="prototype-shell">
@@ -255,24 +287,23 @@ function ReceiptScreen({ onBack, role, activeScreen }) {
 
         <div className="receipt-card">
           <div className="receipt-meta">
-            <span>Invoice #PS-2045</span>
-            <span>12 Oct 2026</span>
+            <span>Invoice #{sale?.invoice || 'Not available'}</span>
+            <span>{sale ? new Date(sale.date).toLocaleString() : 'No sale recorded'}</span>
           </div>
 
-          {receiptItems.map((item) => (
-            <div className="receipt-row" key={item.name}>
+          {(sale?.items || []).map((item) => (
+            <div className="receipt-row" key={item.productId}>
               <div>
                 <strong>{item.name}</strong>
-                <small>{item.qty} pcs</small>
+                <small>{item.quantity} pcs</small>
               </div>
-              <span>₱{(item.qty * item.price).toLocaleString()}</span>
+              <span>₱{(item.quantity * item.price).toLocaleString()}</span>
             </div>
           ))}
 
           <div className="receipt-summary">
             <div><span>Subtotal</span><strong>₱{subtotal.toLocaleString()}</strong></div>
-            <div><span>VAT</span><strong>₱{vat.toLocaleString()}</strong></div>
-            <div className="receipt-total"><span>Total</span><strong>₱{total.toLocaleString()}</strong></div>
+            <div className="receipt-total"><span>Total</span><strong>₱{subtotal.toLocaleString()}</strong></div>
           </div>
 
           <div className="receipt-actions">
@@ -285,14 +316,50 @@ function ReceiptScreen({ onBack, role, activeScreen }) {
   );
 }
 
-function WorkspaceScreen({ screen, role, products, salesSummary, onNavigate, onAddProduct, onEditProduct, onDeleteProduct, onLogout }) {
+function TransactionScreen({ products, onSave, onBack }) {
+  const availableProducts = products.filter((product) => Number(product.stock || 0) > 0);
+  const [productId, setProductId] = useState(availableProducts[0]?.id || '');
+  const [quantity, setQuantity] = useState('1');
+  const selectedProduct = availableProducts.find((product) => String(product.id) === String(productId));
+  const total = Number(quantity || 0) * Number(selectedProduct?.price || 0);
+
+  const submitSale = () => {
+    if (onSave(productId, Number(quantity))) return;
+    window.alert('Enter a valid quantity that is available in stock.');
+  };
+
+  return (
+    <div className="prototype-shell">
+      <div className="mobile-frame transaction">
+        <div className="transaction-header"><span className="mini-paw">{paw}</span><h2>New Transaction</h2></div>
+        <div className="transaction-form">
+          <div className="field">
+            <label htmlFor="sale-product">Product</label>
+            <select id="sale-product" value={productId} onChange={(event) => setProductId(event.target.value)} disabled={availableProducts.length === 0}>
+              {availableProducts.length === 0 && <option value="">No stock available</option>}
+              {availableProducts.map((product) => <option key={product.id} value={product.id}>{product.name} ({product.stock} in stock)</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="sale-quantity">Quantity</label>
+            <input id="sale-quantity" type="number" min="1" max={selectedProduct?.stock || 1} step="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+          </div>
+          <div className="transaction-total"><span>Total</span><strong>₱{total.toLocaleString()}</strong></div>
+          <button className="primary-btn secondary" onClick={submitSale} disabled={!selectedProduct || Number(quantity) < 1 || Number(quantity) > Number(selectedProduct.stock || 0)}>Record sale</button>
+          <button className="mini-action" onClick={onBack}>Back to sales</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceScreen({ screen, role, products, sales, inventoryMovements, salesSummary, chartPeriod, chartData, onPeriodChange, onNavigate, onAddProduct, onEditProduct, onDeleteProduct, onLogout }) {
   const [pdfTools, setPdfTools] = useState(null);
   const isStaff = role === 'staff';
   const menu = isStaff ? staffMenu : sideMenu;
   const titles = {
     products: 'Products',
     sales: 'Sales',
-    customers: 'Customers',
     inventory: 'Inventory',
     reports: 'Reports',
     'workspace-settings': 'Settings',
@@ -301,6 +368,7 @@ function WorkspaceScreen({ screen, role, products, salesSummary, onNavigate, onA
   };
   const lowStockOnly = screen === 'low-stock-staff';
   const visibleProducts = products.filter((product) => !lowStockOnly || Number(product.stock || 0) <= 25);
+  const periodSales = useMemo(() => filterSalesByPeriod(sales, chartPeriod), [sales, chartPeriod]);
 
   useEffect(() => {
     if (screen !== 'reports') return undefined;
@@ -351,6 +419,22 @@ function WorkspaceScreen({ screen, role, products, salesSummary, onNavigate, onA
       styles: { fontSize: 8 },
     });
 
+    const salesTop = report.lastAutoTable.finalY + 12;
+    report.setFontSize(14);
+    report.text('Sales transactions', 14, salesTop);
+    autoTable(report, {
+      startY: salesTop + 5,
+      head: [['Date', 'Invoice', 'Items', 'Total']],
+      body: sales.map((sale) => [
+        new Date(sale.date).toLocaleString(),
+        sale.invoice,
+        sale.items.map((item) => `${item.name} x${item.quantity}`).join(', '),
+        `PHP ${Number(sale.total || 0).toLocaleString()}`,
+      ]),
+      headStyles: { fillColor: [24, 37, 63] },
+      styles: { fontSize: 8 },
+    });
+
     report.save(`jomich-petshop-report-${fileDate}.pdf`);
   };
 
@@ -396,7 +480,7 @@ function WorkspaceScreen({ screen, role, products, salesSummary, onNavigate, onA
               {(screen === 'products' || screen === 'inventory' || screen === 'inventory-staff' || lowStockOnly) && (
                 <button className="add-item-btn" onClick={onAddProduct}>+ Add product</button>
               )}
-              {screen === 'sales' && <button className="add-item-btn" onClick={() => onNavigate('transaction')}>+ New transaction</button>}
+              {screen === 'sales' && !isStaff && <button className="add-item-btn" onClick={() => onNavigate('transaction')}>+ New transaction</button>}
             </div>
           </header>
 
@@ -421,26 +505,53 @@ function WorkspaceScreen({ screen, role, products, salesSummary, onNavigate, onA
             </div>
           )}
 
+          {screen === 'inventory' && !isStaff && (
+            <div className="section-card">
+              <div className="section-head"><span>Inventory movement record</span></div>
+              <div className="table-scroll">
+                <table className="product-table">
+                  <thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Change</th><th>Type</th><th>Reference</th></tr></thead>
+                  <tbody>
+                    {inventoryMovements.map((movement) => (
+                      <tr key={movement.id}>
+                        <td>{new Date(movement.date).toLocaleString()}</td><td>{movement.product}</td><td>{movement.sku}</td>
+                        <td className="stock-change negative">{movement.change}</td><td>{movement.type}</td><td>{movement.reference}</td>
+                      </tr>
+                    ))}
+                    {inventoryMovements.length === 0 && <tr><td colSpan="6">No inventory movements recorded.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {screen === 'sales' && !isStaff && (
             <>
               <div className="summary-grid">
                 {salesSummary.map((item) => <div className="stat-card" key={item.label}><span className="stat-label">{item.label}</span><strong>{item.value}</strong><small>{item.trend}</small></div>)}
               </div>
-              <div className="section-card"><div className="section-head"><span>Recent sales</span><button onClick={() => onNavigate('receipt')}>Preview receipt</button></div>
-                <div className="customer-list">{recurringSales.map((sale) => <div className="customer-item" key={sale.item}><div><strong>{sale.item}</strong><span>{sale.qty} items</span></div><small>{sale.amount}</small></div>)}</div>
+              <div className="analytics-box big-chart-box">
+                <div className="section-head"><span>Sales performance</span><div className="period-switch" role="group" aria-label="Sales period">
+                  {['Daily', 'Weekly', 'Monthly'].map((period) => <button key={period} type="button" className={chartPeriod === period ? 'active' : ''} aria-pressed={chartPeriod === period} onClick={() => onPeriodChange(period)}>{period}</button>)}
+                </div></div>
+                <div className="chart-values">{chartData.map((item) => <span key={item.label}>₱{item.value.toLocaleString()}</span>)}</div>
+                <div className="big-chart" role="img" aria-label={`${chartPeriod} sales performance chart`}><div className="chart-grid-lines"/><div className="chart-columns">
+                  {chartData.map((item) => <span key={item.label} title={`${item.label}: ₱${item.value.toLocaleString()}`} style={{ height: `${Math.max(item.value / Math.max(...chartData.map((entry) => entry.value), 1) * 100, 3)}%` }} />)}
+                </div></div>
+                <div className="chart-labels">{chartData.map((item) => <span key={item.label}>{item.label}</span>)}</div>
+              </div>
+              <div className="section-card"><div className="section-head"><span>Sales transaction record</span><button onClick={() => onNavigate('receipt')}>Preview receipt</button></div>
+                <div className="table-scroll"><table className="product-table"><thead><tr><th>Date</th><th>Invoice</th><th>Items</th><th>Total</th></tr></thead><tbody>
+                  {periodSales.map((sale) => <tr key={sale.id}><td>{new Date(sale.date).toLocaleString()}</td><td>{sale.invoice}</td><td>{sale.items.map((item) => `${item.name} x${item.quantity}`).join(', ')}</td><td>₱{Number(sale.total || 0).toLocaleString()}</td></tr>)}
+                  {periodSales.length === 0 && <tr><td colSpan="4">No sales recorded for this period.</td></tr>}
+                </tbody></table></div>
               </div>
             </>
           )}
 
-          {screen === 'customers' && !isStaff && (
-            <div className="section-card"><div className="section-head"><span>Customer overview</span></div><div className="customer-list">
-              {customerStats.map((item) => <div className="customer-item" key={item.name}><div><strong>{item.name}</strong><span>{item.value}</span></div><small>{item.delta}</small></div>)}
-            </div></div>
-          )}
-
           {screen === 'reports' && !isStaff && (
             <><div className="summary-grid">{salesSummary.map((item) => <div className="stat-card" key={item.label}><span className="stat-label">{item.label}</span><strong>{item.value}</strong><small>{item.trend}</small></div>)}</div>
-              <div className="analytics-box big-chart-box"><div className="section-head"><span>Sales performance</span></div><div className="big-chart"><div className="chart-grid-lines"/><div className="chart-columns">{[32,48,66,58,78,68,94,84,100].map((height, index) => <span key={index} style={{ height: `${height}%` }}/>)}</div></div></div>
+              <div className="analytics-box big-chart-box"><div className="section-head"><span>Sales performance</span></div><div className="big-chart"><div className="chart-grid-lines"/><div className="chart-columns">{chartData.map((item) => <span key={item.label} style={{ height: `${Math.max(item.value / Math.max(...chartData.map((entry) => entry.value), 1) * 100, 3)}%` }}/>)}</div></div></div>
             </>
           )}
 
@@ -468,6 +579,7 @@ function App() {
   const [verificationError, setVerificationError] = useState('');
   const [verificationMessage, setVerificationMessage] = useState('');
   const [chartPeriod, setChartPeriod] = useState('Weekly');
+  const [loginIdentifier, setLoginIdentifier] = useState('');
   const [notifications, setNotifications] = useState(() => {
     const defaults = Object.fromEntries(notificationOptions.map(({ key }) => [key, true]));
     try {
@@ -478,6 +590,8 @@ function App() {
     }
   });
   const [products, setProducts] = useState(() => getProducts());
+  const [sales, setSales] = useState(() => getSales());
+  const [inventoryMovements, setInventoryMovements] = useState(() => getInventoryMovements());
   const [editingProduct, setEditingProduct] = useState(null);
 
   const inventoryStats = useMemo(() => getInventoryStats(products), [products]);
@@ -488,12 +602,17 @@ function App() {
     { label: 'Stock Checks', value: 'Available', trend: 'inventory access' },
   ];
 
-  const salesSummary = useMemo(() => [
-    { label: 'Sales Today', value: '₱18,450', trend: '+12.4%' },
-    { label: 'Orders', value: '184', trend: '+8.1%' },
+  const chartData = useMemo(() => buildChartData(sales, chartPeriod), [sales, chartPeriod]);
+  const salesSummary = useMemo(() => {
+    const selectedSales = filterSalesByPeriod(sales, chartPeriod);
+    const selectedTotal = selectedSales.reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+    return [
+    { label: `Sales ${chartPeriod}`, value: `₱${selectedTotal.toLocaleString()}`, trend: 'recorded sales' },
+    { label: `Transactions ${chartPeriod}`, value: String(selectedSales.length), trend: 'recorded orders' },
     { label: 'Inventory', value: String(inventoryStats.totalStock), trend: '+6.7%' },
-    { label: 'Profit', value: '₱6,280', trend: '+15.9%' },
-  ], [inventoryStats.totalStock]);
+    { label: 'Average sale', value: `₱${(selectedSales.length ? selectedTotal / selectedSales.length : 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, trend: 'per transaction' },
+    ];
+  }, [chartPeriod, inventoryStats.totalStock, sales]);
 
   const topProducts = useMemo(() => products.slice(0, 4).map((product) => ({
     name: product.name,
@@ -528,6 +647,16 @@ function App() {
   const handleDeleteProduct = (productId) => {
     deleteProduct(productId);
     setProducts((prev) => prev.filter((item) => String(item.id) !== String(productId)));
+  };
+
+  const handleRecordSale = (productId, quantity) => {
+    const result = recordSale(productId, quantity);
+    if (!result) return false;
+    setProducts(result.products);
+    setSales((previous) => [result.sale, ...previous]);
+    setInventoryMovements((previous) => [result.movement, ...previous]);
+    setScreen('sales');
+    return true;
   };
 
   const handleLogout = () => {
@@ -591,7 +720,6 @@ function App() {
 
       case 'products':
       case 'sales':
-      case 'customers':
       case 'inventory':
       case 'reports':
       case 'workspace-settings':
@@ -602,7 +730,12 @@ function App() {
             screen={screen}
             role={selectedRole}
             products={products}
+            sales={sales}
+            inventoryMovements={inventoryMovements}
             salesSummary={salesSummary}
+            chartPeriod={chartPeriod}
+            chartData={chartData}
+            onPeriodChange={setChartPeriod}
             onNavigate={setScreen}
             onAddProduct={() => setScreen('add-product')}
             onEditProduct={startEditProduct}
@@ -627,8 +760,16 @@ function App() {
               <div className="screen-body orange">
                 <h2>Log in</h2>
                 <div className="field">
-                  <label>Email</label>
-                  <input type="text" value="jomitchpetshop@gmail.com" readOnly />
+                  <label htmlFor="login-identifier">Email or phone number</label>
+                  <input
+                    id="login-identifier"
+                    type="text"
+                    inputMode="email"
+                    autoComplete="username"
+                    placeholder="Enter email or phone number"
+                    value={loginIdentifier}
+                    onChange={(event) => setLoginIdentifier(event.target.value)}
+                  />
                 </div>
                 <PasswordField
                   label="Password"
@@ -653,7 +794,11 @@ function App() {
                     Staff
                   </button>
                 </div>
-                <button className="primary-btn" onClick={startVerification}>Login</button>
+                <button
+                  className="primary-btn"
+                  onClick={startVerification}
+                  disabled={!(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginIdentifier.trim()) || loginIdentifier.replace(/\D/g, '').length >= 7)}
+                >Login</button>
                 <div className="support-text">Forgot Password?</div>
               </div>
             </div>
@@ -665,14 +810,14 @@ function App() {
           <div className="prototype-shell">
             <div className="mobile-frame">
               <div className="screen-header soft">
-                <div className="screen-title">Verify Your Email</div>
+                <div className="screen-title">Verify Your Account</div>
                 <div className="screen-brand">Jomich Petshop</div>
                 <div className="pet-face">{cat}</div>
                 <div className="mini-paw">{paw}</div>
               </div>
               <div className="screen-body orange tall">
                 <h2>Account Verification</h2>
-                <p>Please enter the four-digit code sent to your email</p>
+                <p>Please enter the four-digit code sent to your email or phone number</p>
                 <p className="verification-demo">Demo code: <strong>1234</strong></p>
                 <div className="otp-box">
                   <input
@@ -860,14 +1005,14 @@ function App() {
                 <div className="analytics-box big-chart-box">
                   <div className="section-head">
                     <span>Sales overview</span>
-                    <button onClick={() => setChartPeriod((period) => period === 'Weekly' ? 'Monthly' : 'Weekly')}>{chartPeriod}</button>
+                    <div className="period-switch" role="group" aria-label="Sales period">
+                      {['Daily', 'Weekly', 'Monthly'].map((period) => <button key={period} type="button" className={chartPeriod === period ? 'active' : ''} aria-pressed={chartPeriod === period} onClick={() => setChartPeriod(period)}>{period}</button>)}
+                    </div>
                   </div>
                   <div className="big-chart">
                     <div className="chart-grid-lines" />
                     <div className="chart-columns">
-                      {(chartPeriod === 'Weekly' ? [32, 48, 66, 58, 78, 68, 94, 84, 100] : [48, 60, 40, 75, 66, 84, 58, 92, 100]).map((height, index) => (
-                        <span key={index} style={{ height: `${height}%` }} />
-                      ))}
+                      {chartData.map((item) => <span key={item.label} title={`${item.label}: ₱${item.value.toLocaleString()}`} style={{ height: `${Math.max(item.value / Math.max(...chartData.map((entry) => entry.value), 1) * 100, 3)}%` }} />)}
                     </div>
                   </div>
                 </div>
@@ -908,24 +1053,6 @@ function App() {
                   </div>
 
                   <div className="widget-stack">
-                    <div className="section-card widget-box">
-                      <div className="section-head">
-                        <span>Customers</span>
-                        <button onClick={() => setScreen('customers')}>View</button>
-                      </div>
-                      <div className="customer-list">
-                        {customerStats.map((item) => (
-                          <div className="customer-item" key={item.name}>
-                            <div>
-                              <strong>{item.name}</strong>
-                              <span>{item.value}</span>
-                            </div>
-                            <small>{item.delta}</small>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
                     <div className="section-card widget-box stock-widget">
                       <div className="section-head">
                         <span>Stock</span>
@@ -950,33 +1077,10 @@ function App() {
         );
 
       case 'receipt':
-        return <ReceiptScreen onBack={setScreen} role={selectedRole} activeScreen={screen} />;
+        return <ReceiptScreen onBack={setScreen} role={selectedRole} sale={sales[0]} />;
 
       case 'transaction':
-        return (
-          <div className="prototype-shell">
-            <div className="mobile-frame transaction">
-              <div className="transaction-header">
-                <span className="mini-paw">{paw}</span>
-                <h2>New Transaction</h2>
-              </div>
-              <div className="panel-box">
-                <div className="panel-title">STOCK IN / STOCK OUT</div>
-                <p>Add items/delivery</p>
-                <p>Less sales/offtake</p>
-                <div className="yes-no">
-                  <span>Yes</span>
-                  <span>No</span>
-                </div>
-              </div>
-              <div className="transaction-row">
-                <button className="primary-btn secondary" onClick={() => setScreen('receipt')}>Preview Receipt</button>
-                <button className="mini-action" onClick={() => setScreen('dashboard')}>Back</button>
-              </div>
-              <div className="pet-footer">{dog}</div>
-            </div>
-          </div>
-        );
+        return <TransactionScreen products={products} onSave={handleRecordSale} onBack={() => setScreen('sales')} />;
 
       case 'settings':
         return (

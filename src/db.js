@@ -10,6 +10,8 @@ const defaultProducts = [
 
 const defaultData = {
   products: defaultProducts,
+  sales: [],
+  inventoryMovements: [],
 };
 
 export function getDb() {
@@ -29,6 +31,8 @@ export function getDb() {
       ...defaultData,
       ...parsed,
       products: Array.isArray(parsed.products) && parsed.products.length ? parsed.products : defaultProducts,
+      sales: Array.isArray(parsed.sales) ? parsed.sales : [],
+      inventoryMovements: Array.isArray(parsed.inventoryMovements) ? parsed.inventoryMovements : [],
     };
   } catch (error) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultData));
@@ -47,6 +51,55 @@ export function saveDb(data) {
 
 export function getProducts() {
   return getDb().products;
+}
+
+export function getSales() {
+  return getDb().sales;
+}
+
+export function getInventoryMovements() {
+  return getDb().inventoryMovements;
+}
+
+export function recordSale(productId, quantity) {
+  const db = getDb();
+  const product = db.products.find((item) => String(item.id) === String(productId));
+  const soldQuantity = Number(quantity);
+
+  if (!product || !Number.isInteger(soldQuantity) || soldQuantity < 1 || soldQuantity > Number(product.stock || 0)) {
+    return null;
+  }
+
+  const sale = {
+    id: Date.now(),
+    invoice: `PS-${Date.now().toString().slice(-6)}`,
+    date: new Date().toISOString(),
+    items: [{ productId: product.id, name: product.name, sku: product.sku, quantity: soldQuantity, price: Number(product.price || 0) }],
+    total: soldQuantity * Number(product.price || 0),
+  };
+  const updatedProducts = db.products.map((item) => {
+    if (String(item.id) !== String(productId)) return item;
+    const stock = Number(item.stock || 0) - soldQuantity;
+    return { ...item, stock, status: stock <= 25 ? 'Low' : 'Healthy' };
+  });
+  const movement = {
+    id: `${sale.id}-${product.id}`,
+    date: sale.date,
+    product: product.name,
+    sku: product.sku,
+    change: -soldQuantity,
+    type: 'Sale',
+    reference: sale.invoice,
+  };
+  const updatedDb = {
+    ...db,
+    products: updatedProducts,
+    sales: [sale, ...db.sales],
+    inventoryMovements: [movement, ...db.inventoryMovements],
+  };
+
+  saveDb(updatedDb);
+  return { sale, products: updatedProducts, movement };
 }
 
 export function addProduct(product) {

@@ -406,6 +406,41 @@ button { cursor: pointer; }
   margin-top: 18px;
 }
 
+.transaction-form {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.transaction-form .field label {
+  color: var(--text);
+}
+
+.transaction-form .field input,
+.transaction-form .field select {
+  border-color: rgba(24, 37, 63, 0.16);
+  border-radius: 8px;
+}
+
+.transaction-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  font-weight: 800;
+}
+
+.transaction-total strong {
+  font-size: 1.2rem;
+}
+
+.transaction-form > .mini-action {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .receipt-header {
   background: rgba(255,255,255,0.22);
   border-radius: 18px;
@@ -931,24 +966,24 @@ button { cursor: pointer; }
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid #f0a323;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.88);
+  background: #f0a323;
+  color: #18253f;
   font-size: 0.86rem;
   font-weight: 750;
   text-align: left;
 }
 
 .sidebar-signout span {
-  color: #ffbd50;
+  color: #18253f;
   font-size: 1.15rem;
 }
 
 .sidebar-signout:hover {
-  border-color: rgba(255, 189, 80, 0.4);
-  background: rgba(255, 189, 80, 0.12);
-  color: #fff;
+  border-color: #ffc45f;
+  background: #ffc45f;
+  color: #101b2f;
 }
 
 .dashboard-main {
@@ -1148,6 +1183,70 @@ button { cursor: pointer; }
   min-height: 14px;
 }
 
+.period-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #f2f0eb;
+}
+
+.period-switch button {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #545454;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.period-switch button.active {
+  background: #fff;
+  color: #a95e00;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.chart-values,
+.chart-labels {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 4px;
+  overflow: hidden;
+  text-align: center;
+}
+
+.chart-values {
+  margin-bottom: 6px;
+  color: #666;
+  font-size: 0.62rem;
+}
+
+.chart-labels {
+  margin-top: 6px;
+  color: #666;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.table-scroll .product-table {
+  min-width: 540px;
+}
+
+.stock-change.negative {
+  color: #b84038;
+  font-weight: 800;
+}
+
 .bottom-grid {
   display: grid;
   grid-template-columns: 1.6fr 0.9fr;
@@ -1158,6 +1257,10 @@ button { cursor: pointer; }
   width: 100%;
   border-collapse: collapse;
   font-size: 0.76rem;
+}
+
+.dashboard-main .section-head {
+  gap: 10px;
 }
 
 .product-table th,
